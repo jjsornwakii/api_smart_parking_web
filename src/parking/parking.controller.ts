@@ -176,7 +176,7 @@ async getAllParkingRecords(
     }
   }
 
-  @Get('payment/check')
+  @Post('payment/check')
   async checkPaymentAmount(@Body() { licensePlate }: LicensePlateDto) {
     try {
       const result = await this.parkingService.checkPaymentAmount(licensePlate);
