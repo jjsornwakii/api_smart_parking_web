@@ -7,6 +7,7 @@ import { Car } from '../entities/car.entity';
 import { EntryRecord } from '../entities/entry-record.entity';
 import { EntryExitRecord } from '../entities/entry-exit-record.entity';
 import { Payment } from '../entities/payment.entity';
+import { OptionConfigurationEntity } from 'src/entities/option-configuration.entity';
 
 @Module({
   imports: [
@@ -14,7 +15,9 @@ import { Payment } from '../entities/payment.entity';
       Car, 
       EntryRecord, 
       EntryExitRecord,
-      Payment
+      Payment,
+      OptionConfigurationEntity // Add this line
+
     ])
   ],
   controllers: [ParkingController],
