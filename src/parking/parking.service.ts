@@ -6,6 +6,7 @@ import { Repository, DataSource, IsNull, Not } from "typeorm";
 import { CreateEntryDto } from "./dto/create-entry.dto";
 import { EntryExitRecord } from "src/entities/entry-exit-record.entity";
 import { Payment } from "src/entities/payment.entity";
+import { OptionConfigurationEntity } from "src/entities/option-configuration.entity";
 
 // src/parking/parking.service.ts
 @Injectable()
@@ -23,8 +24,43 @@ export class ParkingService {
     private entryExitRecordRepository: Repository<EntryExitRecord>,
     @InjectRepository(Payment)
     private paymentRepository: Repository<Payment>,
+    @InjectRepository(OptionConfigurationEntity)
+    private optionConfigRepository: Repository<OptionConfigurationEntity>,
     private dataSource: DataSource
   ) {}
+
+
+  private async getConfiguration() {
+    const config = await this.optionConfigRepository.findOne({
+      order: { parking_option_id: 'DESC' } // Get the most recent configuration
+    });
+
+    if (!config) {
+      // Fallback to default values if no configuration found
+      return {
+        minuteRoundingThreshold: 30, // Default 30 minutes
+        exitBufferTime: 15, // Default 15 minutes
+        overflowHourRate: 20 // Default 20 baht
+      };
+    }
+
+    return {
+      minuteRoundingThreshold: config.minute_rounding_threshold,
+      exitBufferTime: config.exit_buffer_time,
+      overflowHourRate: config.overflow_hour_rate
+    };
+  }
+
+  private calculateRoundedHours(parkedTimeMs: number, minuteRoundingThreshold: number): number {
+    const hours = parkedTimeMs / (1000 * 60 * 60);
+    const integerHours = Math.floor(hours);
+    const remainingMinutes = (hours - integerHours) * 60;
+
+    // Round up if remaining minutes are above the threshold
+    return remainingMinutes > minuteRoundingThreshold 
+      ? integerHours + 1 
+      : integerHours;
+  }
 
   async createEntry(createEntryDto: CreateEntryDto) {
     const queryRunner = this.dataSource.createQueryRunner();
@@ -204,9 +240,14 @@ export class ParkingService {
   async getAllParkingRecords(
     page: number = 1, 
     limit: number = 10, 
-    sortBy: 'entryTime' | 'exitTime' = 'entryTime',
+    sortBy: 'entry_time' | 'exit_time' = 'entry_time',
     sortOrder: 'ASC' | 'DESC' = 'DESC'
   ) {
+
+    // Get configuration
+    const config = await this.getConfiguration();
+
+
     const skip = (page - 1) * limit;
     const currentTime = new Date();
     const hourlyRate = 20;
@@ -234,21 +275,32 @@ export class ParkingService {
     // Process active entries
     const processedActiveEntries = activeEntries.map(entry => {
       const parkedTimeMs = currentTime.getTime() - entry.entry_time.getTime();
-      const parkedHours = Math.ceil(parkedTimeMs / (1000 * 60 * 60));
-      const parkingFee = parkedHours * hourlyRate;
+      const parkedHours = this.calculateRoundedHours(parkedTimeMs, config.minuteRoundingThreshold);
+      const parkingFee = parkedHours * config.overflowHourRate;
   
       return {
-        id: entry.entry_records_id,
+        entry_records_id: entry.entry_records_id,
+        car_id: entry.car_id,
         type: 'active',
-        licensePlate: entry.car.license_plate,
-        entryTime: entry.entry_time,
-        exitTime: null,
-        parkedHours,
-        parkingFee,
+        entry_time: entry.entry_time,
+        exit_time: null,
+        entry_car_image_path: entry.entry_car_image_path,
+        car: {
+          car_id: entry.car.car_id,
+          license_plate: entry.car.license_plate,
+          vip_expiry_date: entry.car.vip_expiry_date,
+          member_id: entry.car.member_id,
+          //isVip: entry.car.isVip
+        },
+        parked_hours: parkedHours,
+        parking_fee: parkingFee,
+        //isVip: entry.car.isVip,
         payments: entry.payments.map(payment => ({
-          paymentId: payment.payment_id,
+          payment_id: payment.payment_id,
+          entry_record_id: payment.entry_record_id,
           amount: payment.amount,
-          paidAt: payment.paid_at
+          discount: payment.discount,
+          paid_at: payment.paid_at
         }))
       };
     });
@@ -256,21 +308,32 @@ export class ParkingService {
     // Process completed entries
     const processedCompletedEntries = completedEntries.map(entry => {
       const parkedTimeMs = entry.exit_time.getTime() - entry.entry_time.getTime();
-      const parkedHours = Math.ceil(parkedTimeMs / (1000 * 60 * 60));
-      const parkingFee = parkedHours * hourlyRate;
-  
+      const parkedHours = this.calculateRoundedHours(parkedTimeMs, config.minuteRoundingThreshold);
+      const parkingFee = parkedHours * config.overflowHourRate;
+      
       return {
-        id: entry.entry_exit_records_id,
+        entry_exit_records_id: entry.entry_exit_records_id,
+        car_id: entry.car_id,
         type: 'completed',
-        licensePlate: entry.car.license_plate,
-        entryTime: entry.entry_time,
-        exitTime: entry.exit_time,
-        parkedHours,
-        parkingFee,
+        entry_time: entry.entry_time,
+        exit_time: entry.exit_time,
+        entry_car_image_path: entry.entry_car_image_path,
+        car: {
+          car_id: entry.car.car_id,
+          license_plate: entry.car.license_plate,
+          vip_expiry_date: entry.car.vip_expiry_date,
+          member_id: entry.car.member_id,
+          //isVip: entry.car.isVip
+        },
+        parked_hours: parkedHours,
+        parking_fee: parkingFee,
+        //isVip: entry.car.isVip,
         payments: entry.payments.map(payment => ({
-          paymentId: payment.payment_id,
+          payment_id: payment.payment_id,
+          entry_exit_record_id: payment.entry_exit_record_id, 
           amount: payment.amount,
-          paidAt: payment.paid_at
+          discount: payment.discount,
+          paid_at: payment.paid_at
         }))
       };
     });
@@ -278,8 +341,8 @@ export class ParkingService {
     // Combine and sort entries
     const allEntries = [...processedActiveEntries, ...processedCompletedEntries]
       .sort((a, b) => {
-        const timeA = sortBy === 'entryTime' ? a.entryTime : a.exitTime || a.entryTime;
-        const timeB = sortBy === 'entryTime' ? b.entryTime : b.exitTime || b.entryTime;
+        const timeA = sortBy === 'entry_time' ? a.entry_time : a.exit_time || a.entry_time;
+        const timeB = sortBy === 'entry_time' ? b.entry_time : b.exit_time || b.entry_time;
         return sortOrder === 'DESC' 
           ? timeB.getTime() - timeA.getTime() 
           : timeA.getTime() - timeB.getTime();
@@ -288,11 +351,11 @@ export class ParkingService {
     return {
       data: allEntries,
       pagination: {
-        currentPage: page,
-        pageSize: limit,
-        totalActiveEntries: activeTotal,
-        totalCompletedEntries: completedTotal,
-        totalEntries: activeTotal + completedTotal
+        current_page: page,
+        page_size: limit,
+        total_active_entries: activeTotal,
+        total_completed_entries: completedTotal,
+        total_entries: activeTotal + completedTotal
       }
     };
   }

@@ -12,6 +12,7 @@ import { AuthModule } from './auth/auth.module';
 import { AdminModule } from './admins/admin.module';
 import { Admin } from './entities/admin.entity';
 import { ConfigurationModule } from './configuration/configuration.module';
+import { MemberModule } from './member/member.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { ConfigurationModule } from './configuration/configuration.module';
     AdminModule,
     ParkingModule,
     ConfigurationModule,
+    MemberModule,
 
   ],
 })
