@@ -13,6 +13,8 @@ import { AdminModule } from './admins/admin.module';
 import { Admin } from './entities/admin.entity';
 import { ConfigurationModule } from './configuration/configuration.module';
 import { MemberModule } from './member/member.module';
+import { DashboardController } from './dashboard/dashboard.controller';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -37,6 +39,7 @@ import { MemberModule } from './member/member.module';
     ParkingModule,
     ConfigurationModule,
     MemberModule,
+    DashboardModule,
 
   ],
 })
